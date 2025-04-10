@@ -186,6 +186,10 @@ class SportsbookCutOdds(UrlRequester):
         jdata = self.get_json_data(url)
 
         # win_data = None
+        
+        if jdata is None:
+            print("No odds data found for url: {}".format(url))
+            return None
 
         keys = ['eventGroup', 'offerCategories']
         offer_cats_data = get_nested_item(d=jdata, keys=keys)
@@ -309,8 +313,11 @@ class SportsbookCutOdds(UrlRequester):
             odds_data.update(win_data)
             
         cut_data = self._get_cut_odds()
-        if len(cut_data) > 0:
-            odds_data.update(cut_data)
+        if cut_data is None:
+            print("No cut odds found for event")
+        else:
+            if len(cut_data) > 0:
+                odds_data.update(cut_data)
         
         return odds_data
     
@@ -353,6 +360,7 @@ class SportsbookCutOdds(UrlRequester):
         df_cols = [d.get('col') for d in col_configs if d.get('col') is not None]
         
         # Filter columns
+        df_cols = [df_col for df_col in df_cols if df_col in df.columns.values]
         df = df[df_cols]
         
         # Rename columns
@@ -384,7 +392,7 @@ if __name__ == "__main__":
     save_data = True
     path = 'data/2025/masters'
     fname = 'sportsbook_cut_odds.csv'
-    event_tag = "ukopen"
+    event_tag = "masters2025"
     # event_id = 24222
     # event_id = 92694
     # event_id = 79720
