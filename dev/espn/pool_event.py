@@ -235,7 +235,14 @@ class PoolEventScorer():
                 
         # Check whether players made cut
         col_names =   ['P1_MadeCut', 'P2_MadeCut', 'P3_MadeCut', 'P4_MadeCut', 'TB_MadeCut']
-        pool_score_df[col_names] = id_df.replace(id_cut_map)
+
+        # 4/10/25 KK: Possible workaround for downcasting issue with replace
+        # pool_score_df[col_names] = id_df.replace(id_cut_map).infer_objects(copy=False)
+        # pool_score_df[col_names] = id_df.map(pd.Series(id_cut_map))
+        for dest_col, src_col in zip(col_names, id_df.columns.values):
+            # pool_score_df[dest_col] = id_df[src_col].map(pd.Series(id_cut_map))
+            pool_score_df[dest_col] = id_df[src_col].map(id_cut_map)
+        
         pool_score_df['MadeCut'] = pool_score_df[col_names[:4]].min(axis=1)
         
         # pool_score_df['Score'] = pool_score_df.iloc[:, :4].sum(axis=1)
