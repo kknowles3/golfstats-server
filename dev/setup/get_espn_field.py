@@ -89,7 +89,7 @@ class EspnGolfField:
         
         return df
 
-    def get_event_roster_df(self, url):
+    def get_event_roster_df(self, url, drop_amateur_tags=True):
 
         # Load player data
         
@@ -105,7 +105,8 @@ class EspnGolfField:
         df = score_df[['PLAYER']].copy()
         
         # Drop amateur tags
-        df['PLAYER'] = df['PLAYER'].str.replace("(a)", "", regex=False).str.strip()
+        if drop_amateur_tags:
+            df['PLAYER'] = df['PLAYER'].str.replace("(a)", "", regex=False).str.strip()
         
         roster_df = self.add_roster_columns(df)
         
@@ -122,7 +123,9 @@ if __name__ == "__main__":
 
     loader = EspnGolfField()
     
-    roster_df = loader.get_event_roster_df(url)
+    roster_df = loader.get_event_roster_df(
+        url, 
+        drop_amateur_tags=False)
     
     if save_data:
         roster_df.to_csv(os.path.join(path, fname))

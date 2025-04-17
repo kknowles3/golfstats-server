@@ -186,6 +186,11 @@ class EspnGolfEvent():
         # Drop None rows
         df = df.dropna()
         
+        # # TODO Revisit this hard-coding
+        # # Drop amateur tags
+        # if drop_amateur_tags:
+        #     df['PLAYER'] = df['PLAYER'].str.replace("(a)", "", regex=False).str.strip()
+        
         df_cols = df.columns.values
 
         if 'PLAYER' in df_cols:

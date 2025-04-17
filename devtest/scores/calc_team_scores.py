@@ -25,8 +25,8 @@ if __name__ == "__main__":
     # EVENT_ID = event_config['event_id']
     # SCORE_URL = event_config['score_url'].format(EVENT_ID)
     
-    db_name = 'ukopen2024'
-    event_id = 401580360
+    db_name = 'masters2025'
+    event_id = 401703504
     player_score_cname = 'player_score'
     pool_score_cname = 'pool_score'
     score_url = 'https://www.espn.com/golf/leaderboard/_/tournamentId/{}'.format(event_id)

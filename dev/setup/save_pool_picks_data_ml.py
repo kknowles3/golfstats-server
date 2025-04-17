@@ -143,11 +143,11 @@ def save_and_reload_df(df, collection_name, orient='split', overwrite=True):
 
 if __name__ == "__main__":
     
-    team_picks_path = os.path.join(APP_PATH, 'data/2024/ukopen')
+    team_picks_path = os.path.join(APP_PATH, 'data/2025/masters')
     team_picks_fname = 'pool_picks.csv'
     name_corrections_fname = 'pool_pick_corrections.csv'
     team_picks_skip_rows = 0 # Number of import rows to skip
-    db_name = 'ukopen2024'
+    db_name = 'masters2025'
     
     # orient = 'split'
     # orient = 'records'
