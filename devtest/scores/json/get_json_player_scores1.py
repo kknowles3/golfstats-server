@@ -9,16 +9,14 @@ Experimental JSON-based method for retrieving player score data
 """
 
 from dev.util.download_util import get_soup
-import pandas as pd
 import requests
 
 # from dev.util.data_util import RemoteDataLoader
 from dev_util.mongo_util import MongoDataLoader
 from dev_util.datetime_util import get_now
-from dev_util.data_util import get_nested_item
 
 # Class that represents a single golf event with data retrieved from ESPN site
-class EspnGolfEvent():
+class EspnGolfEvent2():
     
     def __init__(self, mdl:MongoDataLoader, score_url):
         
@@ -231,85 +229,6 @@ class EspnGolfEvent():
         
         return df
 
-    # # TODO Add validation checks
-    # def _get_event_status_data(self, score_jdata):
-    #     '''
-    #     Gets a subset of event status data (e.g., current round) from the
-    #     full scoring dataset.
-
-    #     Parameters
-    #     ----------
-    #     score_jdata : TYPE
-    #         DESCRIPTION.
-
-    #     Returns
-    #     -------
-    #     event_status_data : TYPE
-    #         DESCRIPTION.
-
-    #     '''
-
-    #     # TODO Validate null conditions
-    #     # Get some stuff out of the jdata
-    #     # d = score_jdata.get('sports')[0]
-    #     # league_data = d.get('leagues')[0]
-    #     # event_data = league_data.get('events')[0]
-    #     event_data = score_jdata.get('events')[0]
-
-    #     event_name = event_data.get('name')
-
-    #     competitions = event_data.get('competitions')
-    #     competition = competitions[0]
-        
-    #     ########################
-    #     # Get Event Status Data
-    #     ########################
-        
-    #     # TODO Review and enrich as additional data is needed
-    #     # Get some data on the event status
-        
-    #     comp_status_data = competition.get('status')
-    #     current_round = comp_status_data.get('period')
-    #     round_type = comp_status_data.get('type')
-    #     event_label = round_type.get('detail')
-
-    #     event_status_data = dict(
-    #         eventName = event_name,
-    #         currentRound = current_round,
-    #         eventLabel = event_label
-    #         )
-        
-    #     return event_status_data
-    
-    # # TODO Add validation checks
-    # def _get_player_score_data(self, jdata, as_df=False):
-        
-    #     # Need to handle multiple conditions:
-    #     # - tourney hasn't started
-    #     # - First round in progress, some haven't started
-    #     # - Day complete, next round hasn't started
-    #     # - next round has started
-        
-    #     event_data = score_jdata.get('events')[0]
-
-    #     competitions = event_data.get('competitions')
-    #     competition = competitions[0]
-
-    #     players_data = competition.get('competitors')
-        
-    #     # 6/15/24 KK: First trying to match current dateframe structure from 
-    #     # scraping the table soup
-    #     for pdata in players_data:
-            
-    #         athlete_data = pdata.get('athlete')
-            
-    #         player_name = athlete_data.get('displayName')
-    #         # player_shortname = athlete_data.get('shortName')
-    #         player_id = self.player_id_map.get(player_name)
-        
-            
-        
-                               
         
     # JSON-based data retrieval
     def refresh_player_score_jdata(self):
@@ -413,8 +332,7 @@ if __name__ == "__main__":
     
     # score_page_url_base = 'https://www.espn.com/golf/leaderboard/_/tournamentId/{}'
     # score_jdata_url = 'https://site.web.api.espn.com/apis/v2/scoreboard/header?sport=golf&league=pga&region=us&lang=en&contentorigin=espn&buyWindow=1m&showAirings=buy%2Clive%2Creplay&showZipLookup=true&tz=America%2FNew_York'
-    score_jdata_url_base = 'https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/{}?lang=en&region=us'
-    course_stats_url_base = 'https://site.web.api.espn.com/apis/site/v2/sports/golf/pga/leaderboard/course?region=us&lang=en&event={}'
+    # score_jdata_url_base = 'https://sports.core.api.espn.com/v2/sports/golf/leagues/pga/events/{}?lang=en&region=us'
  
     # # 4/14/25 KK: Testing score jdata with details on scoring
     # # This one provides lines score but not summary status
@@ -423,8 +341,8 @@ if __name__ == "__main__":
     
     db_name = 'masters2025'
     event_id = 401703504
-    player_score_cname = 'player_score'
-    pool_score_cname = 'pool_score'
+    # player_score_cname = 'player_score'
+    # pool_score_cname = 'pool_score'
 
     config_data_key = 'GSD_Connect'
     config_data_grp = 'GSD_Server'
@@ -438,10 +356,6 @@ if __name__ == "__main__":
     # score_data = ege.get_player_score_data()
     
     score_jdata = ege.refresh_player_score_jdata()
-    
-    # Course stats for running scoring simulations
-    
-    course_stats_url = course_stats_url_base.format(event_id)
     
     resp = requests.get(course_stats_url)
     stats_jdata = resp.json()

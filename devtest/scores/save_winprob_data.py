@@ -15,7 +15,7 @@ if __name__ == "__main__":
     from sandbox.scores.calc_score_distribution import ScoreStatsLoader
     from sandbox.scores.calc_score_distribution import GolfScoreSimulator
     
-    event_tag = 'usopen2024'
+    event_tag = 'masters2025'
     filter_cuts = True # Keep cuts to deal with downstream logic that needs cleanup
     num_trials = 10000
     num_places = 7

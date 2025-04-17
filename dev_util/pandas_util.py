@@ -408,7 +408,7 @@ def denormalize_df(df, ref_cols, denorm_cols, denorm_cat_name='category', denorm
     return denorm_df
 
 # TODO Add validation that columns values are dictionaries
-def expand_dict_column(df, col_name, suffix='', prefix='', capitalize_child_labels=False):
+def expand_dict_column(df, col_name, suffix='', prefix='', capitalize_child_labels=False, col_name_map:dict=None):
     '''
     Expands a column whose values are dictionaries into a set of columns, based
     on the first level keys of the dictionary.
@@ -424,6 +424,9 @@ def expand_dict_column(df, col_name, suffix='', prefix='', capitalize_child_labe
         Optional suffix to apply when expanded columns already exist in dataframe
     capitalize_child_labels : bool
         Optional flag to capitalize column names of embedded children (e.g., "parentChild").
+    col_name_map : dict
+        Optional dictionary to supply column name mappings for the nested dictionary
+        
     Returns
     -------
     df : TYPE
@@ -433,20 +436,34 @@ def expand_dict_column(df, col_name, suffix='', prefix='', capitalize_child_labe
     
     if col_name in df.columns.values:
         
-        df2 = pd.DataFrame(df[col_name].values.tolist())
-        col_names = df2.columns.values
+        drop_col_name = col_name
+        
+        # Drop na values
+        # TODO Enhance so we only use if the cell item is a dictionary
+        df2 = df.dropna(subset = col_name)
+        
+        df3 = pd.DataFrame(df2[col_name].values.tolist(), index=df2.index.values)
+        col_names = df3.columns.values
+        
         # TODO Consider moving capitalization flag into expand column configs
         # if capitalize_child_labels:
         #     col_names = [col.capitalize() for col in col_names]
-        new_col_names = {col:"{}{}{}".format(prefix, col.capitalize() if capitalize_child_labels else col, suffix) for col in col_names}
-        df2.rename(columns=new_col_names, inplace=True)
+        
+        new_col_names = {col:"{}{}{}".format(prefix, "{}{}".format(col[:1].upper(), col[1:]) if capitalize_child_labels else col, suffix) for col in col_names}
+        
+        # Apply col_name_map here
+        if col_name_map is not None:
+            new_col_names = {col:col_name_map.get(col, col) for col in new_col_names}
+
+        # Rename column names
+        df3.rename(columns=new_col_names, inplace=True)
         
         # df = df.drop(col_name, axis=1).join(df2, rsuffix=suffix)
-        df = df.drop(col_name, axis=1).join(df2)
+        df = df.drop(drop_col_name, axis=1).join(df3, how='left')
         
     return df
 
-def expand_dict_columns(df, expand_col_configs, capitalize_child_labels=False):
+def expand_dict_columns(df, expand_col_configs): #, capitalize_child_labels=False):
     '''
     Expands dictionary-based columns into multiple columns based on a list
     of column configs. Each column config is a dictionary with the
@@ -466,16 +483,18 @@ def expand_dict_columns(df, expand_col_configs, capitalize_child_labels=False):
 
     '''
     
-    dfcols = df.columns.values
     
     # Expand columns
     for d in expand_col_configs:
         col_name = d.get('col_name')
 
+        dfcols = df.columns.values
+
         if col_name in dfcols:
-            prefix = d.get('prefix', '')
-            suffix = d.get('suffix', '')
-            df = expand_dict_column(df, col_name=col_name, suffix=suffix, prefix=prefix, capitalize_child_labels=capitalize_child_labels)
+            # prefix = d.get('prefix', '')
+            # suffix = d.get('suffix', '')
+            # df = expand_dict_column(df, col_name=col_name, suffix=suffix, prefix=prefix, capitalize_child_labels=capitalize_child_labels)
+            df = expand_dict_column(df, **d)
 
     return df
 

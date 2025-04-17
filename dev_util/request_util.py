@@ -1,512 +1,425 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Apr 15 10:21:00 2021
+Created on Mon Apr 14 10:15:04 2025
 
 @author: kknow
-
-Set of utility classes and methods for data-related components, including
-dataframe and dictionary wrapper and conversion classes.
-
 """
 
-# import os
-# import json
-import pandas as pd
-from dev_util.gen_util import handle_exception, gen_handler
-from dev_util.datetime_util import get_now
-# from dev_util.app_util import get_config_val
-# from timeit import default_timer as timer
-from pandas.testing import assert_frame_equal
-
 import requests
-from json import dumps, loads
-# from bson.json_util import dumps, loads
+# import urllib
+from bs4 import BeautifulSoup
+import os
 
-class RequestDataLoader():
-    """ 
-    Request-based data loader class for connecting to Mongo DB using the data API.  This is a read-only
-    class that can load data from the remote server.  It has no write capabilities
-    by design and by permissioning
+# from typing import Dict, List
+from concurrent.futures import ThreadPoolExecutor
+
+from dev_util.config.app_logger import logger
+
+class RequestAuthorizationError(Exception):
+    """ Raised when authorization is denied for a request """
+    """ Request status code 401 """
+    pass
+
+class UrlRequester():
+    """
+    Newish class that was introduced in the mktstats project.  This class allows
+    for more complex url requests with specialized header data and results returned
+    in json format.  A primary goal of this class is to go directly to the json 
+    provider instead of extracting data from html-formatted pages.  In theory,
+    this approach is more robust, provides access to a richer underlying dataset,
+    and is less impacted by changes to output page formatting that often
+    require restructuring of the implicit data extraction.
     
-    https://www.mongodb.com/docs/atlas/api/data-api-resources/#base-url
+    If access to the page's source data is not available, then fallback to the 
+    BeautifulSoup request approach.
     
     """
     
-    def __init__(self, db_name=None, cluster_name=None, api_key=None):
+    def __init__(self, headers=None, verify=None, log_errors=True):
 
-        # TODO Move to config data
-        self.base_url =  "https://us-east-1.aws.data.mongodb-api.com/app/data-vpqyv/endpoint/data/v1/{}"
-
-        self.db_name = db_name
-        self.cluster_name = cluster_name
-        # TODO Convert to property, so we can update headers if/when API key changes
-        self.api_key = api_key
-        self.content_type = 'application/json'
-        
-    def _get_headers(self):
-        
-        headers = {
-              'Content-Type': self.content_type,
-              # 'Access-Control-Request-Headers': '*',
-              'api-key': self.api_key, 
+        # self.values = {}
+        # default headers
+        self.base_headers = {
+            # "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
+            # TODO Move this to BaseChromeDriver?
+            # "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4844.51 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0"
             }
+        self.headers = self.base_headers if headers is None else headers
+        # These next two parameters can be used to check last call
+        self._last_request = None
+        self._last_response = None
+        self.log_errors = log_errors
+        self.verify = None if verify is None else verify
+        # self.verify = verify
+        self.timeout_secs = 120 # Default request timeout in seconds
         
-        return headers
-
-    # @handle_exception(gen_handler, 'Unable to get dataframe from remote data:')            
-    def get_df_from_data(self, data_dict):
-        """
-        Converts a single document into a dataframe.  Note that this
-        currently includes some hard-coded assumptions about the document 
-        structure.
-        
-        TODO Extract hard-coded assumptions into class and/or method parameters
-
-        Parameters
-        ----------
-        data_dict : TYPE
-            DESCRIPTION.
-
-        Returns
-        -------
-        df : TYPE
-            DESCRIPTION.
-
-        """
-        
-        if data_dict is None:
-            print('Missing or empty data dictionary.  Unable to create dataframe.')
-            return None
-        
-        df = None
-        dd_data = data_dict.get('data', None)
-        if dd_data is None:
-            # Check for dataframe key
-            df = dd_data.get('df', None)
-            if df is None:
-                print('Data dictionary contains no dataframe data.')
-                return None
-        else:
-            # Check for records and orient
-            df_orient = data_dict.get('orient', None)        
-            if df_orient == 'split':
-                df = pd.DataFrame(**dd_data)
-            else:
-                df = pd.DataFrame(dd_data)
-                
-        return df
-
-    @handle_exception(gen_handler, 'Error loading remote data:')
-    def _send_request(self, req_type, action_tag, req_body, headers=None):
-        
-        url = self.base_url.format(action_tag)
-        
-        headers = self._get_headers() if headers is None else headers
-
-        response = requests.request(req_type, url, headers=headers, data=dumps(req_body))
-
-        return response
-    
-    # Docs on find method for collections:
-    # https://pymongo.readthedocs.io/en/stable/api/pymongo/collection.html
-    @handle_exception(gen_handler, 'Error loading remote data:')
-    def load_data_item(self, cname, db_name=None, filter_tags={}, projection_tags={}):
-        """
-        Generic method for loading a single data item from a remote MongoDB 
-        source using the Data API.  This refactors the common logic for inserting data to promote
-        reuse across different methods that save specialized data.  
-        If find_tag is empty, then an arbitrary find_one call will be executed. 
-        Should be fine if there is only one item in the collection.  
-        
-        Parameters
-        ----------
-        cname : TYPE
-            Name of the collection.
-        filter_tags : TYPE, optional
-            DESCRIPTION. The default is {}.
-        projection_tags : TYPE, optional
-            DESCRIPTION. The default is {}.
-
-        Returns
-        -------
-        data_item : TYPE
-            DESCRIPTION.
-
-        """
-
-        action_tag = 'action/findOne'
-        
-        db_name = self.db_name if db_name is None else db_name
-        
-        if db_name is None:
-            # TODO Convert to exception
-            print("No database specified. Unable to load data.")
-            return None
-        
-        req_body = {
-            "dataSource": self.cluster_name,
-            "database": db_name,
-            "collection": cname,
-            'filter': filter_tags,
-            "projection": projection_tags,
-        }
-
-        response = self._send_request(req_type='POST', action_tag=action_tag, req_body=req_body)
-        
-        # Expect status code 200 for loading data
-        if response.status_code == 200:
-            data_item = loads(response.text)
-            if isinstance(data_item, dict):
-                doc = data_item.get('document')
-                return doc
-        else:
-            print('Unable to get data item')
-            return response.text
-        
-        return data_item
-
-    # @handle_exception(gen_handler, 'Error loading remote data:')
-    def load_data_items(self, cname, db_name=None, filter_tags={}, projection_tags={}, sort_tags={}, max_items=10, debug=False):
-        """
-        Generic method for loading multiple data items from a remote MongoDB 
-        source.  This refactors the common logic for retrieval data to 
-        promote reuse across different methods that save specialized data.
-        If find_tag is empty, then all data items in the collection will be 
-        returned.  
-        
-        Parameters
-        ----------
-        collection : TYPE
-            DESCRIPTION.
-        find_tag : TYPE, optional
-            DESCRIPTION. The default is {}.
-        debug : boolean, optional
-            if true, print debug messages, else ignore.  The default is False.
-
-        Returns
-        -------
-        data_items : TYPE
-            returns a list of data items from the db.
-
-        """
-    
-        action_tag = 'action/find'
-        
-        db_name = self.db_name if db_name is None else db_name
-
-        if db_name is None:
-            # TODO Convert to exception
-            print("No database specified. Unable to load data.")
-            return None
-        
-        req_body = {
-            "dataSource": self.cluster_name,
-            "database": db_name,
-            "collection": cname,
-            'filter': filter_tags,
-            "projection": projection_tags,
-            'limit': max_items,
-            "sort": sort_tags,
-        }
-
-        response = self._send_request(req_type='POST', action_tag=action_tag, req_body=req_body)
-        
-        # Expext status code 200
-        if response.status_code == 200:
-            data_items = loads(response.text)
-            if isinstance(data_items, dict):
-                docs = data_items.get('documents')
-                return docs
-        else:
-            print('Unable to get data items')
-            return response.text
-
-    def load_df(self, cname, db_name=None, filter_tags={}, projection_tags={}):
-        
-        data_item = self.load_data_item(cname, db_name=db_name, filter_tags=filter_tags, projection_tags=projection_tags)
-        
-        df = self.get_df_from_data(data_dict=data_item)
-        
-        return df
-        
-class RequestDataServer(RequestDataLoader):
-    """ 
-    Remote data server class for connecting to Mongo DB using the Data API. This class extends the 
-    RemoteDataLoader class and add the ability to write data and modify existing
-    data.
-    
-    """
-    
-    def __init__(self, db_name=None, cluster_name=None, api_key=None):
-        super(RequestDataServer, self).__init__(db_name, cluster_name=cluster_name, api_key=api_key)
-
-    @handle_exception(gen_handler, 'Error saving remote data:')
-    def save_data(self, data, cname, db_name=None, filter_tag={}, overwrite=False, add_timestamp=True):
-        """
-        Generic method for inserting data into a remote MongoDB collection.  This refactors
-        the common logic for inserting data to promote reuse across different 
-        methods that save specialized data.
-        
-        Parameters
-        ----------
-        data : dictionary.
-            Data to save remotely.  Should be complete data set to insert.
-        cname : Name of a collection
-            Collection where data will be stored.
-        overwrite : TYPE, optional
-            DESCRIPTION. The default is True.
-
-        Returns
-        -------
-        None.
-
-        """
-
-        # TODO Validate data to save before we overwrite existing data
-        headers = self._get_headers()
-
-        cluster_name = self.cluster_name
-        if cluster_name is None:
-            # TODO Convert to exception
-            print("No cluster name specified. Unable to save data.")
-            return None
-        
-        db_name = self.db_name if db_name is None else db_name
-
-        if db_name is None:
-            # TODO Convert to exception
-            print("No database specified. Unable to save data.")
-            return None
-
-        if overwrite:
-            
-            # TODO Add method to delete items
-            action_tag = 'action/deleteMany'
-            url = self.base_url.format(action_tag)
-
-            req_body = {
-                "dataSource": cluster_name,
-                "database": db_name,
-                "collection": cname,
-                "filter": filter_tag
+        # Dictionary of methods to execute for each request type
+        self.req_methods = {
+            'get': requests.get,
+            'post': requests.post,
+            'put': requests.put,
+            'delete': requests.delete,
+            'patch': requests.patch,
+            # 'head': requests.head,
             }
 
-            # Clear existing data
-            response = requests.request("POST", url, headers=headers, data=dumps(req_body))
-
-            # TODO add check_response method for reuse
-            # Validate that delete worked
-            # Expect status code 200 for deleting data?
-            if response.status_code == 200:
-                result = loads(response.text)
-                print("Deleted {} item(s)".format(result.get('deletedCount')))
-            else:
-                print('Unable to delete saved data')
-                result = response.text
-
-        # Save new data
-        if add_timestamp:
-            now = get_now()
-            data.update({'save_timestamp': str(now)})
+    def get_last_request(self, include_headers=False):
+        
+        d = self._last_request
+        
+        if isinstance(d, dict):
             
-        action_tag = 'action/insertOne'        
-        url = self.base_url.format(action_tag)
+            d = d.copy()
+            d.pop('headers')
+            
+            return d
         
-        req_body = {
-            "dataSource": self.cluster_name,
-            "database": db_name,
-            "collection": cname,
-            "document": data
-        }
+        return d
 
-        response = requests.request("POST", url, headers=headers, data=dumps(req_body))
-        
-        # Validate request result
-        # Expect status code 200 for deleting data?
-        if response.status_code == 201:
-            result = loads(response.text)
-        else:
-            print('Unable to save data item')
-            result = response.text
+    def get_last_response(self):
+        return self._last_response
+    
+    def send_request(
+            self, 
+            req_type, 
+            url, 
+            path_params=None, 
+            qry_params=None, 
+            jdata=None, 
+            headers=None, 
+            timeout=None):
+        '''
+        Generic method for executing a request with optional support for various input
+        parameters.
 
-        return result
-
-    @handle_exception(gen_handler, 'Error saving dataframe remotely:')
-    def save_df(self, df, cname, orient='list', meta_tags={}, overwrite=False, add_timestamp=True, validate=False):
-        """
-        Saves a dataframe to a remote MongoDB server using the Data API.  The 
-        dataframe is converted to records.
-        
         Parameters
         ----------
-        df : TYPE
-            DESCRIPTION.
-        collection : collection or name of a collection
-            Collection where dataframe will be stored.
-        orient : string
-            Format for the json conversion
-        meta_tags : TYPE, optional
-            DESCRIPTION. The default is {}.
-        overwrite : TYPE, optional
-            DESCRIPTION. The default is True.
+        req_type : string
+            A string label matching the type of the request (e.g., 'get', 'put', 'post', ...).
+        url : string
+            URL for the request.  The url can contain named {} tag, where the 
+            path_params will be mapped to define the fully-specified url.
+        path_params : dict, optional
+            Dictionary containing a format string mapping to named {} tags in the 
+            url.  The default is None.
+        qry_params : dict, optional
+            Dictionary containing a dictionary of query parameters for the request.  
+            The default is None.
+        jdata : dict, optional
+            Dictionary containing the request body data in json/dict format. 
+            The default is None.
+        headers : dict, optional
+            DESCRIPTION. The default is None.
+        timeout : dict, optional
+            DESCRIPTION. The default is None.
 
         Returns
         -------
-        None.
+        r : TYPE
+            DESCRIPTION.
+
+        '''
+
+        if headers is None:
+            headers = self.headers
+            
+        if timeout is None:
+            timeout = self.timeout_secs
+            # print("Timeout = {} seconds".format(timeout))
+
+        # if isinstance(data, dict):
+        #     data = json.dumps(data)
+
+        args = {
+            'headers': headers,
+            # 'verify': verify,
+            # *** Testing
+            # 'verify': verify,
+            # "cert": "C:/Users/kknow/Downloads/Lucido Software Self CA.crt",
+            # 'cert': "C:/Users/kknow/OneDrive/Documents/Analytics/dev/trm-api/data/xtrm-beta/cert/Lucido Software Self CA.p7c",
+            'timeout': timeout
+            }
+        
+        verify = self.verify
+        if verify is not None:
+            args['verify'] = verify
+        
+
+        # TODO Add validation and error handling
+        # Get method_url with path params added
+        method_url = url if path_params is None else url.format(**path_params)
+        
+        # Add query params
+        if qry_params is not None:
+            args['params'] = qry_params
+        
+        if req_type in ['post', 'put', 'patch']:
+            # args['data'] = data
+            args['json'] = jdata
+
+        # Execute the request
+        req_method = self.req_methods.get(req_type)
+        if req_method is None:
+            logger.error('Unknown or unsupported request type: {}'.format(req_type))
+            return None            
+
+        # https://realpython.com/python-requests/#the-get-request
+        r = req_method(method_url, **args)
+        # print(args)
+        
+        d = {
+            'req_type': req_type,
+            'url': url,
+            'headers': headers
+            }
+
+        if path_params is not None:
+            d['path_params'] = path_params
+            
+        if qry_params is not None:
+            # 8/28/23 KK: Remove empty parameters, because some service methods don't handle
+            qry_params_adj = {k:v for k,v in qry_params.items() if v is not None}
+            
+            d['qry_params'] = qry_params_adj
+            
+        # # Convert to python format to obviate downstream conversion
+        # if data is not None:
+        #     d['data'] = json.loads(data)
+        if jdata is not None:
+            d['json'] = jdata
+            
+        self._last_request = d
+        self._last_response = r
+        
+        # self.status_code = r.status_code
+        # if r.status_code not in [200, 201, 404]:
+        #     logger.error('Unexpected request status code: {}'.format(r.status_code))
+
+        return r
+    
+################################
+# Begin Parallel request testing
+################################
+
+    def send_request_config(
+            self, 
+            request_config:dict, 
+            headers:dict=None, 
+            timeout:int=None):
+        '''
+        Method for sending a single url request, where request_configs is a 
+        dictionary containing the named arguments for the send_request method.
+
+        Parameters
+        ----------
+        request_config : TYPE
+            Dictionary of the named arguments for the send request method.
+        headers : TYPE, optional
+            Dictionary of optional headers that are included with each request. The 
+            default is None.
+
+        Returns
+        -------
+        resp : requests.models.Response
+            DESCRIPTION.
+
+        '''
+        
+        resp = self.send_request(**request_config, headers=headers, timeout=timeout)
+        
+        return resp
+
+    # TODO Not sure on method naming conventions
+    # @calc_function_time
+    def send_request_configs(
+            self, 
+            request_configs:list[dict],
+            headers:dict=None,
+            max_workers:int=100,
+            timeout:int=None):
+        '''
+        Method for sending url requests in parallel based on a list of request_confgs,
+        where each item in the list is a dictionary containing the named arguments for the
+        send_request method.
+
+        Parameters
+        ----------
+        request_configs : Dict
+            List of dictionaries, each containing the arguments for the send_request method.
+        headers : Dict, optional
+            Set of optional headers that are included with each request. The default is None.
+        max_workers : int, optional
+            Maximum number of worker threads to process parallel requests. The default is 100.
+        timeout : int, optional
+            Maximum number of seconds per request before a timeout error is raised. The default is 30.
+
+        Returns
+        -------
+        responses : list[requests.models.Response]
+            DESCRIPTION.
+
+        '''
+
+        max_workers = len(request_configs) if len(request_configs) < max_workers else max_workers
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            responses = [resp for resp in executor.map(self.send_request_config, request_configs)]
+        
+        return responses
+
+##############################
+# End Parallel request testing
+##############################
+             
+    def get_response(self, url, headers=None):
+        '''
+        Convenience method for get requests
+
+        Parameters
+        ----------
+        url : TYPE
+            DESCRIPTION.
+        headers : TYPE, optional
+            DESCRIPTION. The default is None.
+
+        Returns
+        -------
+        r : TYPE
+            DESCRIPTION.
+
+        '''
+        r = self.send_request(req_type='get', url=url, headers=headers)
+
+        return r
+
+    def get_soup(self, url, headers=None):
+        
+        response = self.get_response(url, headers)
+        
+        soup = BeautifulSoup(response.text,"lxml")
+
+        return soup
+
+    def get_json_data(self, url):
+        """
+        Simple url request for getting json data, based on assumption that the url
+        returns data in json format.  This is convenient for direct data requests.
+
+        Parameters
+        ----------
+        url : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        jdata : TYPE
+            DESCRIPTION.
 
         """
 
-        # Convert dataframe to dictionary
-        data_dict = df.to_dict(orient)
-        
-        # Save dataframe
-        data = {**meta_tags, **{'orient':orient, "data": data_dict}}
-        
-        result = self.save_data(data, cname, overwrite=overwrite, add_timestamp=add_timestamp)
-
-        if validate:
-            
-            # Load df to compare against what we saved
-            load_df = self.load_df(cname=cname)
-            
+        r = self.get_response(url)
+        if r.status_code == 200:
             try:
-                assert_frame_equal(load_df, df)
-                print('Dataframes are equivalent')
-            except:  # appeantly AssertionError doesn't catch all
-                print('Saved dataframe does not match input data')            
-            
-        return result
-
-    # @handle_exception(gen_handler, 'Error saving remote data:')
-    # def save_docs(self, docs, collection, overwrite=False):
-    #     """
-    #     Generic method for inserting a list of documents (in dictionary record format)
-    #     into a remote MongoDb collection.  Each record in the list is
-    #     saved a distinct document in collection (unlike nested formats used by other methods)
-                                                          
-        
-    #     Parameters
-    #     ----------
-    #     docs : list.
-    #         List of records (e.g., from converted dataframe) to save remotely.  
-    #         Can be incremental or complete set to insert.
-    #     collection : collection or name of a collection
-    #         Collection where data will be stored.
-    #     overwrite : TYPE, optional
-    #         DESCRIPTION. The default is True.
-
-    #     Returns
-    #     -------
-    #     None.
-
-    #     """
-        
-    #     # TODO this needs some cleanup for better handling of capped vs. non-capped collections and overwrite settings
-    #     db = self.db
-
-    #     if db is None:
-    #         # TODO Convert to exception
-    #         print("No database specified. Unable to save dataframe.")
-    #         return None
-
-    #     save_data = docs
-
-    #     if type(collection) is str:
-    #         collection = db.get_collection(collection)
-            
-    #     if overwrite:
-    #         # then assume for now that collection is not capped
-    #         # TODO add validation check for capped collections
-            
-    #         # Start a transaction wrapper for overwrites in case we have a failure
-    #         with self.client.start_session() as session:
-    #             with session.start_transaction():
-    #                 if collection.count_documents({}) > 0:
-    #                     # drop existing table/collection
-    #                     # db.drop_collection(collection, session=session)
-    #                     # Clear all existing documents from collection
-    #                     collection.delete_many({}, session=session)                    
-    #                 res = collection.insert_many(save_data, session=session)
-    #     else:
-    #         # otherwise, we simply insert the transaction into the collection
-    #         with self.client.start_session() as session:
-    #             with session.start_transaction():
-    #                 res = collection.insert_many(save_data, session=session)
-
-    #     return res
-
-    # @handle_exception(gen_handler, 'Error saving dataframe remotely:')
-    # # def save_remote_df(self, df, collection, orient='list', meta_tags={}, overwrite=False, add_timestamp=True):
-    # def save_df_as_docs(self, df, collection, meta_tags={}, overwrite=False, add_timestamp=False):
-    #     """
-    #     Saves a dataframe to a remote MongoDB server.  The dataframe is converted to
-    #     records, and each record (i.e., row in the dataframe) corresponds
-    #     to a separate document, which allows for saving large dataframes that exceed
-    #     the BSON size constraint for single documents, and it allows for
-    #     querying subsets of the remote dataset more easily.
-        
-    #     Parameters
-    #     ----------
-    #     df : TYPE
-    #         DESCRIPTION.
-    #     collection : collection or name of a collection
-    #         Collection where dataframe will be stored.
-    #     meta_tags : dictionary, optional
-    #         DESCRIPTION. The default is {}.
-    #     overwrite : boolean, optional
-    #         Flag to determine whether to clear and replace any existing
-    #         documents. The default is True.
-
-    #     Returns
-    #     -------
-    #     a result set with information about the insert transaction.
-
-    #     """
-
-    #     if add_timestamp:
-    #         now = get_now()
-    #         # Need to copy if we're adding timestamp
-    #         df = df.copy()
-    #         df['save_timestamp'] = now
-                
-    #     # Convert dataframe to records
-    #     docs = df.to_dict('records')
-        
-    #     # Save dataframe as docs
-    #     self.save_remote_docs(docs, collection, overwrite=overwrite)
-        
-    #     return None
+                jdata = r.json()
+            except ValueError: # includes simplejson.decoder.JSONDecodeError
+                print('Error decoding response as JSON data')
+                jdata = None
+            except:
+                print('Some other error decoding JSON data')
+                jdata = None
+        else:
+            jdata = None
     
-    # @handle_exception(gen_handler, 'Error saving dataframe remotely as json:')
-    # def save_df_as_json(self, df, collection, orient='split', meta_tags={}, overwrite=False, add_timestamp=True):
-    #     """
-    #     Saves a dataframe to a remote MongoDB server.  The dataframe is converted to
-    #     json format using the 'orient' input parameter.
-        
-    #     Parameters
-    #     ----------
-    #     df : TYPE
-    #         DESCRIPTION.
-    #     collection : collection or name of a collection
-    #         Collection where dataframe will be stored.
-    #     orient : string
-    #         Format for the json conversion
-    #     meta_tags : TYPE, optional
-    #         DESCRIPTION. The default is {}.
-    #     overwrite : TYPE, optional
-    #         DESCRIPTION. The default is True.
+        return jdata
 
-    #     Returns
-    #     -------
-    #     None.
+    def post_response(self, url, data, headers=None):
+        '''
+        Simple url request for posting json data, based on the assumption that the 
+        url returns data in json format.
 
-    #     """
+        Parameters
+        ----------
+        url : TYPE
+            DESCRIPTION.
+        data : TYPE
+            DESCRIPTION.
+        headers : TYPE, optional
+            DESCRIPTION. The default is None.
+
+        Returns
+        -------
+        r : TYPE
+            DESCRIPTION.
+
+        '''
+
+        r = self.send_request(req_type='post', url=url, data=data, headers=headers)
         
-    #     # Save dataframe
-    #     # data_dict = df.to_dict("records")
-    #     jdata = df.to_json(orient=orient)
-    #     data = {**meta_tags, **{'orient':orient, "data": jdata}}
+        return r
+
+    # TODO refactor response methods to reuse common portions
+    def put_response(self, url, data, headers=None):
+        '''
+        Simple url request for putting json data, based on the assumption that the 
+        url returns data in json format.
+
+        Parameters
+        ----------
+        url : TYPE
+            DESCRIPTION.
+        data : TYPE
+            DESCRIPTION.
+        headers : TYPE, optional
+            DESCRIPTION. The default is None.
+
+        Returns
+        -------
+        r : TYPE
+            DESCRIPTION.
+
+        '''
+
+        r = self.send_request(req_type='put', url=url, data=data, headers=headers)
+
+        return r
+    
+    def download_url(
+            self, 
+            url, 
+            save_fname, 
+            save_path=None, 
+            chunk_size=128):
+        '''
+        Downloads a file from a url and saves locally based on
+        a filename and optional path location.
+
+        Parameters
+        ----------
+        url : TYPE
+            DESCRIPTION.
+        save_fname : TYPE
+            DESCRIPTION.
+        save_path : TYPE, optional
+            DESCRIPTION. The default is None.
+        chunk_size : TYPE, optional
+            DESCRIPTION. The default is 128.
+
+        Returns
+        -------
+        None.
+
+        '''
+        # https://stackoverflow.com/questions/9419162/download-returned-zip-file-from-url
         
-    #     self.save_remote_data(data, collection, overwrite=overwrite, add_timestamp=add_timestamp)
+        if save_path is not None:
+            path_fname = os.path.join(save_path, save_fname)
+        else:
+            path_fname = save_fname
+            
+        r = requests.get(url, stream=True)
+        with open(path_fname, 'wb') as fd:
+            for chunk in r.iter_content(chunk_size=chunk_size):
+                fd.write(chunk)    
         
-    #     return None
+        return None

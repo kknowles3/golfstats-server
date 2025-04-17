@@ -21,14 +21,7 @@ from dev_util.pandas_util import save_df_to_csv
 def load_team_picks():
     
     fname = os.path.join(team_picks_path, team_picks_fname)
-    # team_picks_df = pd.read_csv(fname, index_col=False, skiprows=team_picks_skip_rows)
-    team_picks_df = pd.read_csv(
-        fname, 
-        index_col=False, 
-        skiprows=team_picks_skip_rows,
-        encoding='cp1252'
-        )
-    
+    team_picks_df = pd.read_csv(fname, index_col=False, skiprows=team_picks_skip_rows)
     team_picks_df.insert(loc=0, column='team_id', value=team_picks_df.index.values )
 
     return team_picks_df
@@ -154,7 +147,7 @@ if __name__ == "__main__":
     team_picks_fname = 'pool_picks.csv'
     name_corrections_fname = 'pool_pick_corrections.csv'
     team_picks_skip_rows = 0 # Number of import rows to skip
-    db_name = 'masters2025'
+    db_name = 'masters2025_dev'
     
     # orient = 'split'
     # orient = 'records'
@@ -185,43 +178,39 @@ if __name__ == "__main__":
     
     # Check for errors and name mismatches
     error_names = check_matching_names(team_picks_df, espn_player_df)
-    if len(error_names) == 0:
-        
+    if len(error_names) > 0:
+        print("There are {} names with matching errors".format(len(error_names)))
+        print("\n".join(error_names.values))
+
+    else:    
         print('No name matching errors found')
-        matches_df = None
         
-    else:
-        
+    # Find closest player name matches in ESPN list
+    matches_df = find_closest_matching_names(
+        error_names, 
+        espn_player_df, 
+        num_matches=2)
+
+    print(matches_df[['name', 'bestMatch', 'bestScore']])
+    
+    # Check for user confirmation to save best matches
+    choice = input('Apply best match name corrections? Press Y or y to confirm: ')
+    if choice.upper() == 'Y':
+
+        # Apply name corrections
+        print("Applying {} name corrections".format(len(matches_df)))
+        mod_pool_df = apply_name_mods(
+            pool_df=team_picks_df, 
+            matches_df=matches_df)
+
+        # Re-check for mismatches
+        error_names = check_matching_names(team_picks_df, espn_player_df)
         if len(error_names) > 0:
             print("There are {} names with matching errors".format(len(error_names)))
             print("\n".join(error_names.values))
-       
-        # Find closest player name matches in ESPN list
-        matches_df = find_closest_matching_names(
-            error_names, 
-            espn_player_df, 
-            num_matches=2)
     
-        print(matches_df[['name', 'bestMatch', 'bestScore']])
-        
-        # Check for user confirmation to save best matches
-        choice = input('Apply best match name corrections? Press Y or y to confirm: ')
-        if choice.upper() == 'Y':
-    
-            # Apply name corrections
-            print("Applying {} name corrections".format(len(matches_df)))
-            mod_pool_df = apply_name_mods(
-                pool_df=team_picks_df, 
-                matches_df=matches_df)
-    
-            # Re-check for mismatches
-            error_names = check_matching_names(team_picks_df, espn_player_df)
-            if len(error_names) > 0:
-                print("There are {} names with matching errors".format(len(error_names)))
-                print("\n".join(error_names.values))
-        
-            else:    
-                print('No name matching errors found after modifications')
+        else:    
+            print('No name matching errors found after modifications')
     
     if save_data:
         
@@ -229,16 +218,13 @@ if __name__ == "__main__":
         choice = input('Save best match name corrections? Press Y or y to confirm: ')
         if choice.upper() == 'Y':
 
+            print("Saving {} name corrections locally".format(len(matches_df)))
 
             # Save locally
-            if matches_df is not None:
-                
-                print("Saving {} name corrections locally".format(len(matches_df)))
-                
-                save_df_to_csv(
-                    df=matches_df,
-                    path=team_picks_path,
-                    fname=name_corrections_fname)
+            save_df_to_csv(
+                df=matches_df,
+                path=team_picks_path,
+                fname=name_corrections_fname)
 
             print('Saving {} sets of team picks'.format(len(team_picks_df)))
             df = team_picks_df

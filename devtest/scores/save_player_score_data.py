@@ -11,7 +11,7 @@ from dev.espn.pool_event import PoolEventScorer
 
 if __name__ == "__main__":
     
-    save_remote = True
+    save_remote = False
     
     db_name = 'masters2025'
     event_id = 401703504

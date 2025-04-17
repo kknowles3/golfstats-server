@@ -32,7 +32,7 @@ from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 
 
-from dev_util.config.app_data import logger
+from dev_util.config.app_logger import logger
 
 class RequestAuthorizationError(Exception):
     """ Raised when authorization is denied for a request """

@@ -6,7 +6,7 @@ Created on Wed Jun 28 11:52:31 2023
 
 """
 
-import pandas as pd
+# import pandas as pd
 
 from components.app_data import EVENT_CONFIGS
 from dev.espn.pool_event import PoolEventScorer
@@ -17,7 +17,7 @@ from sandbox.scores.calc_score_distribution import GolfScoreSimulator
 
 if __name__ == "__main__":
 
-    event_tag = 'usopen2024'
+    event_tag = 'masters2025'
     filter_cuts = False # Keep cuts to deal with downstream logic that needs cleanup
     num_trials = 100000
     

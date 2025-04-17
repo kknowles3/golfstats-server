@@ -410,7 +410,7 @@ class GolfScoreSimulator():
         tscore_stats_df['Team'] = tscore_stats_df.index.map(tid_names)
         # tscore_stats_df.insert(0, "Team", tscore_stats_df.index.map(tid_names))
         
-        tscore_stats_df = tscore_stats_df.sort_values(by='PlaceProbPct', ascending=False)
+        tscore_stats_df = tscore_stats_df.sort_values(by='PlaceProbPct', ascending=False).reset_index(drop=True)
         
         return tscore_stats_df
     

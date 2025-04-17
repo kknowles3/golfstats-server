@@ -119,25 +119,39 @@ class PoolEventScorer():
 
         # self.pool_id_df = self.pool_list_df.replace(self.pool_id_map)
         
-        # TODO Move to class variable
-        # Names of columns for mapping from player name to ESPN id
-        player_map_cols = [
-            'PLAYER 1',
-            'PLAYER 2',
-            'PLAYER 3',
-            'PLAYER 4',
-            'TIEBREAKER'
-            ]
+        # # TODO Move to class variable
+        # # Names of columns for mapping from player name to ESPN id
+        # player_map_cols = [
+        #     'PLAYER 1',
+        #     'PLAYER 2',
+        #     'PLAYER 3',
+        #     'PLAYER 4',
+        #     'TIEBREAKER'
+        #     ]
         pool_id_df = self.pool_list_df.copy()
         # pool_id_df[player_map_cols] = pool_id_df[player_map_cols].replace(self.pool_id_map)
         
         # col_names = ['P1_ID', 'P2_ID', 'P3_ID', 'P4_ID', 'TB_ID']
         # pool_id_df.columns = col_names
-        col_names = {'PLAYER 1':'P1_ID', 'PLAYER 2':'P2_ID', 'PLAYER 3':'P3_ID', 'PLAYER 4':'P4_ID', 'TIEBREAKER':'TB_ID'}
+        all_col_names = {
+            'PLAYER 1':'P1_ID', 
+            'PLAYER 2':'P2_ID', 
+            'PLAYER 3':'P3_ID', 
+            'PLAYER 4':'P4_ID', 
+            'TIEBREAKER':'TB_ID',
+            'PLAYER 5 (SUB)':'SUB_ID'
+            }
+        
+        # Filter columns names based on what is in pool_df
+        col_names = {name_col:id_col for name_col,id_col in all_col_names.items() if name_col in pool_id_df.columns.values}
+        
         pool_id_map = self.pool_id_map
         
         for name_col, id_col in col_names.items():
-            pool_id_df[id_col] = pool_id_df[name_col].map(pool_id_map)
+            if name_col in pool_id_df.columns.values:
+                pool_id_df[id_col] = pool_id_df[name_col].map(pool_id_map)
+            else:
+                print("Column: {} not found in pool_id_df".format(name_col))
 
         # drop name columns
         name_cols = list(col_names.keys())
@@ -192,7 +206,10 @@ class PoolEventScorer():
         
         return player_list_df
     
-    def calc_pool_scores_df(self, player_scores_df, exclude_cut_teams=True):
+    def calc_pool_scores_df(
+            self, 
+            player_scores_df, 
+            exclude_cut_teams=True):
         """
         Recalculates pool scores by team and by player from a set of espn player scores
 

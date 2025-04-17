@@ -316,7 +316,7 @@ class ScoreUpdater2():
         self.update_freq_secs = update_freq_secs
         self.__update_thread__ = None
         
-        self.db_name = 'pga2023'
+        self.db_name = 'masters2025'
         self.event_id = 401465523
         self.score_url = "https://www.espn.com/golf/leaderboard/_/tournamentId/{}".format(self.event_id)
 
@@ -500,7 +500,7 @@ def main():
     update_freq_secs = 2
     multi_thread = False
 
-    db_name = 'masters2024'
+    db_name = 'masters2025'
    
     # updater = ScoreUpdater2(update_freq_secs=update_freq_secs)
     event_id = 401580344
